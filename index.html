@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sentinel Security — Unified Service & Deployment Checker</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div>
+        <span class="brand-badge">SENTINEL SECURITY</span>
+        <h1>Unified Deployment &amp; Health Checker</h1>
+      </div>
+      <div class="topbar-actions">
+        <button id="theme-toggle" type="button" class="btn btn-secondary">Light Mode</button>
+        <button id="auto-refresh-toggle" type="button" class="btn btn-secondary">Auto-Refresh: ON (30s)</button>
+        <button id="run-check-btn" type="button" class="btn btn-primary">Run Full Check</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container main-content">
+    <section id="overall-banner" class="banner banner-checking">
+      <div>
+        <span class="banner-label">OVERALL INFRASTRUCTURE STATUS</span>
+        <h2 id="overall-title">Probing Deployed Services...</h2>
+        <p id="overall-subtitle">Checking Render API Gateway, Supabase Telemetry, and Vercel Portals.</p>
+      </div>
+      <div class="banner-meta">
+        <div id="last-checked">Last check: --</div>
+        <div id="snapshot-age">Server snapshot: --</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Backend Telemetry &amp; Wake-Up</h3>
+          <p>Live CORS telemetry from <code>https://backend-pi68.onrender.com/api/status/system</code></p>
+        </div>
+        <button id="wake-backend-btn" type="button" class="btn btn-secondary">Wake Up Backend</button>
+      </div>
+      <div id="backend-telemetry" class="telemetry-grid">
+        <div class="telemetry-box">
+          <span class="label">Gateway State</span>
+          <strong id="tel-gateway">CHECKING</strong>
+        </div>
+        <div class="telemetry-box">
+          <span class="label">Database (Supabase)</span>
+          <strong id="tel-db">--</strong>
+        </div>
+        <div class="telemetry-box">
+          <span class="label">DB Ping</span>
+          <strong id="tel-db-ping">-- ms</strong>
+        </div>
+        <div class="telemetry-box">
+          <span class="label">Mail Gateway</span>
+          <strong id="tel-mail">--</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Monitored Endpoints (Render &amp; Vercel)</h3>
+          <p>Combines live browser reachability/latency with the latest GitHub Actions HTTP status snapshot.</p>
+        </div>
+      </div>
+      <div id="services-grid" class="services-grid"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Custom Link Probe</h3>
+          <p>Test any deployment URL or route on demand.</p>
+        </div>
+      </div>
+      <form id="custom-probe-form" class="custom-form">
+        <input
+          id="custom-url-input"
+          type="url"
+          placeholder="https://web-beta-orcin-33.vercel.app/login"
+          required
+        />
+        <button type="submit" class="btn btn-primary">Check URL</button>
+      </form>
+      <div id="custom-probe-result" class="custom-result hidden"></div>
+    </section>
+  </main>
+
+  <footer class="footer container">
+    <span>Sentinel Security Infrastructure Monitor — Deployed via GitHub Pages</span>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>

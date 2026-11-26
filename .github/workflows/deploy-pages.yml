@@ -1,0 +1,84 @@
+name: Check Endpoints & Deploy GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Probe All Render & Vercel Endpoints
+        run: |
+          python3 - << 'EOF'
+          import json, time, urllib.request, urllib.error
+          from datetime import datetime, timezone
+
+          endpoints = [
+              {"id": "backend-health", "url": "https://backend-pi68.onrender.com/api/health"},
+              {"id": "backend-oidc", "url": "https://backend-pi68.onrender.com/.well-known/openid-configuration"},
+              {"id": "web-portal", "url": "https://web-beta-orcin-33.vercel.app/"},
+              {"id": "web-login", "url": "https://web-beta-orcin-33.vercel.app/login"},
+              {"id": "web-register", "url": "https://web-beta-orcin-33.vercel.app/register"},
+              {"id": "sentinel-control", "url": "https://sentinel-control-green.vercel.app/"},
+              {"id": "demo-acme", "url": "https://demo-apps-blue.vercel.app/"},
+              {"id": "demo-fintech", "url": "https://demo-apps-sfjl.vercel.app/"},
+              {"id": "demo-nexus", "url": "https://demo-apps-fjk5.vercel.app/"},
+          ]
+
+          results = []
+          for ep in endpoints:
+              t0 = time.time()
+              code = "ERR"
+              try:
+                  req = urllib.request.Request(ep["url"], headers={"User-Agent": "SentinelStatusChecker/1.0"})
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      code = resp.status
+              except urllib.error.HTTPError as e:
+                  code = e.code
+              except Exception:
+                  code = "ERR"
+              latency = round((time.time() - t0) * 1000)
+              results.append({"id": ep["id"], "url": ep["url"], "httpCode": code, "latencyMs": latency})
+
+          payload = {
+              "checkedAt": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+              "results": results,
+          }
+          with open("status.json", "w") as f:
+              json.dump(payload, f, indent=2)
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "."
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: check-and-build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
