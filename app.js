@@ -64,8 +64,38 @@ const ENDPOINTS = [
   },
 ];
 
+const PIPELINE_REPOS = [
+  {
+    id: "backend",
+    label: "Backend API (Render Auto-Deploy)",
+    repo: "Sentinal-Security/backend",
+    branch: "development",
+    platform: "Render",
+  },
+  {
+    id: "web",
+    label: "Web IAM Portal (Vercel Auto-Deploy)",
+    repo: "Sentinal-Security/web",
+    branch: "development",
+    platform: "Vercel",
+  },
+  {
+    id: "mobile",
+    label: "Mobile APK Builder (GitHub Actions)",
+    repo: "Sentinal-Security/mobile",
+    branch: "development",
+    platform: "GitHub Actions",
+  },
+  {
+    id: "checker",
+    label: "Status Checker (GitHub Pages)",
+    repo: "ractopen/sentinel-status-checker",
+    branch: "main",
+    platform: "GitHub Pages",
+  },
+];
+
 let autoRefreshEnabled = true;
-let autoRefreshTimer = null;
 let serverSnapshot = null;
 
 function initTheme() {
@@ -79,6 +109,110 @@ function initTheme() {
     document.documentElement.setAttribute("data-theme", next);
     localStorage.setItem("sentinel_checker_theme", next);
     btn.textContent = next === "dark" ? "Light Mode" : "Dark Mode";
+  });
+}
+
+function formatAgo(iso) {
+  if (!iso) return "N/A";
+  const diffSec = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  return `${Math.floor(diffSec / 86400)}d ago`;
+}
+
+async function fetchJsonSafe(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7000);
+  try {
+    const res = await fetch(url, { cache: "no-store", signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+async function probePipeline(item) {
+  const [runsData, commitsData, deploymentsData] = await Promise.all([
+    fetchJsonSafe(`https://api.github.com/repos/${item.repo}/actions/runs?per_page=2`),
+    fetchJsonSafe(`https://api.github.com/repos/${item.repo}/commits/${item.branch}`),
+    fetchJsonSafe(`https://api.github.com/repos/${item.repo}/deployments?per_page=1`),
+  ]);
+
+  const latestRun = runsData?.workflow_runs?.[0];
+  const latestCommitMsg = commitsData?.commit?.message?.split("\n")[0] || "No commit message";
+  const latestCommitSha = commitsData?.sha ? commitsData.sha.slice(0, 7) : "--";
+  const latestCommitDate = commitsData?.commit?.author?.date;
+
+  let deployState = null;
+  let deployEnv = item.platform;
+  if (Array.isArray(deploymentsData) && deploymentsData.length > 0) {
+    const dep = deploymentsData[0];
+    deployEnv = dep.environment || item.platform;
+    const statuses = await fetchJsonSafe(dep.statuses_url);
+    if (Array.isArray(statuses) && statuses.length > 0) {
+      deployState = statuses[0].state;
+    }
+  }
+
+  let state = "IDLE / LIVE";
+  let pillClass = "pill-ok";
+  let summary = `Latest code (${latestCommitSha}) is deployed and idle.`;
+
+  if (latestRun && (latestRun.status === "in_progress" || latestRun.status === "queued")) {
+    state = "COMPILING (GITHUB ACTION)";
+    pillClass = "pill-warn";
+    summary = `GitHub Action "${latestRun.name}" is currently ${latestRun.status.replace("_", " ")} (${formatAgo(latestRun.created_at)}).`;
+  } else if (deployState === "pending" || deployState === "in_progress" || deployState === "queued") {
+    state = `COMPILING (${item.platform.toUpperCase()})`;
+    pillClass = "pill-warn";
+    summary = `${deployEnv} is currently building/deploying commit ${latestCommitSha}.`;
+  } else if (deployState === "failure" || deployState === "error" || (latestRun && latestRun.conclusion === "failure")) {
+    state = "BUILD FAILED";
+    pillClass = "pill-err";
+    summary = `Latest ${item.platform} build/deploy reported a failure. Check workflow logs.`;
+  } else if (latestRun) {
+    summary = `Last workflow "${latestRun.name}" finished (${latestRun.conclusion || latestRun.status}) ${formatAgo(latestRun.updated_at)}.`;
+  }
+
+  return {
+    ...item,
+    state,
+    pillClass,
+    summary,
+    latestCommitSha,
+    latestCommitMsg,
+    latestCommitDate,
+    runUrl: latestRun?.html_url || `https://github.com/${item.repo}/actions`,
+  };
+}
+
+function renderPipelines(pipelineResults) {
+  const grid = document.getElementById("pipeline-grid");
+  grid.innerHTML = "";
+
+  pipelineResults.forEach((p) => {
+    const card = document.createElement("div");
+    card.className = "service-card";
+    card.innerHTML = `
+      <div class="service-top">
+        <div>
+          <div class="service-name">${p.label}</div>
+          <div class="service-platform">${p.repo} (${p.branch})</div>
+        </div>
+        <span class="status-pill ${p.pillClass}">${p.state}</span>
+      </div>
+      <div class="service-summary">${p.summary}</div>
+      <div class="service-meta">
+        <span>Commit ${p.latestCommitSha}: ${p.latestCommitMsg.slice(0, 48)}</span>
+        <span>${formatAgo(p.latestCommitDate)}</span>
+      </div>
+      <a class="service-url" href="${p.runUrl}" target="_blank" rel="noopener noreferrer">View Pipeline / Actions Logs</a>
+    `;
+    grid.appendChild(card);
   });
 }
 
@@ -115,8 +249,8 @@ async function probeEndpoint(ep) {
     if (ep.mode === "no-cors") {
       return {
         ...ep,
-        state: "ONLINE",
-        detail: "Reachable from browser",
+        state: "RUNNING",
+        detail: "Website is reachable and responding normally",
         latency,
         httpCode: "OPAQUE",
       };
@@ -125,8 +259,8 @@ async function probeEndpoint(ep) {
     if (res.status === 502 || res.status === 503 || res.status === 504) {
       return {
         ...ep,
-        state: "COMPILING",
-        detail: `HTTP ${res.status} (Waking up / Compiling)`,
+        state: "COMPILING / WAKING",
+        detail: `HTTP ${res.status} — Render is waking up or compiling new code`,
         latency,
         httpCode: res.status,
       };
@@ -136,7 +270,7 @@ async function probeEndpoint(ep) {
       return {
         ...ep,
         state: "OFFLINE",
-        detail: `HTTP ${res.status} ${res.statusText}`,
+        detail: `Returned HTTP ${res.status} ${res.statusText}`,
         latency,
         httpCode: res.status,
       };
@@ -144,8 +278,8 @@ async function probeEndpoint(ep) {
 
     return {
       ...ep,
-      state: "ONLINE",
-      detail: `HTTP ${res.status} OK`,
+      state: "RUNNING",
+      detail: `Healthy (${res.status} OK)`,
       latency,
       httpCode: res.status,
     };
@@ -155,8 +289,8 @@ async function probeEndpoint(ep) {
     const isTimeout = err && err.name === "AbortError";
     return {
       ...ep,
-      state: isTimeout ? "COMPILING" : "OFFLINE",
-      detail: isTimeout ? "Timed out (8s) — cold starting / weak network" : "Unreachable / Network error",
+      state: isTimeout ? "COMPILING / WAKING" : "OFFLINE",
+      detail: isTimeout ? "Timed out (8s) — server is cold-starting or compiling" : "Unreachable / Network error",
       latency,
       httpCode: "ERR",
     };
@@ -190,14 +324,14 @@ async function probeBackendTelemetry() {
     pingEl.textContent = data?.database?.pingMs !== undefined ? `${data.database.pingMs} ms` : "N/A";
     mailEl.textContent = data?.email?.status || data?.emailSubsystem?.status || "OPERATIONAL";
   } catch {
-    gwEl.textContent = "WAKING / OFFLINE";
+    gwEl.textContent = "COMPILING / WAKING";
     dbEl.textContent = "--";
     pingEl.textContent = "-- ms";
     mailEl.textContent = "--";
   }
 }
 
-function renderResults(results) {
+function renderResults(results, pipelineResults) {
   const grid = document.getElementById("services-grid");
   grid.innerHTML = "";
 
@@ -206,17 +340,17 @@ function renderResults(results) {
   let offlineCount = 0;
 
   results.forEach((r) => {
-    if (r.state === "ONLINE") onlineCount++;
-    else if (r.state === "COMPILING") compilingCount++;
+    if (r.state === "RUNNING") onlineCount++;
+    else if (r.state === "COMPILING / WAKING") compilingCount++;
     else offlineCount++;
 
     const snapshotEntry = serverSnapshot?.results?.find((s) => s.id === r.id);
     const serverBadge = snapshotEntry
-      ? `Server Check: HTTP ${snapshotEntry.httpCode} (${snapshotEntry.latencyMs}ms)`
-      : "Server Check: pending";
+      ? `Server HTTP Check: ${snapshotEntry.httpCode} (${snapshotEntry.latencyMs}ms)`
+      : "Server HTTP Check: pending";
 
     const pillClass =
-      r.state === "ONLINE" ? "pill-ok" : r.state === "COMPILING" ? "pill-warn" : "pill-err";
+      r.state === "RUNNING" ? "pill-ok" : r.state === "COMPILING / WAKING" ? "pill-warn" : "pill-err";
 
     const card = document.createElement("div");
     card.className = "service-card";
@@ -229,34 +363,36 @@ function renderResults(results) {
         <span class="status-pill ${pillClass}">${r.state}</span>
       </div>
       <a class="service-url" href="${r.url}" target="_blank" rel="noopener noreferrer">${r.url}</a>
-      <div class="service-meta">
-        <span>${r.detail}</span>
-        <span>${r.latency} ms</span>
-      </div>
+      <div class="service-summary">${r.detail}</div>
       <div class="service-meta">
         <span>${serverBadge}</span>
+        <span>${r.latency} ms</span>
       </div>
     `;
     grid.appendChild(card);
   });
+
+  const activeBuilds = pipelineResults.filter((p) => p.state.startsWith("COMPILING"));
+  const failedBuilds = pipelineResults.filter((p) => p.state === "BUILD FAILED");
 
   const banner = document.getElementById("overall-banner");
   const title = document.getElementById("overall-title");
   const subtitle = document.getElementById("overall-subtitle");
   banner.className = "banner";
 
-  if (offlineCount === 0 && compilingCount === 0) {
-    banner.classList.add("banner-ok");
-    title.textContent = `All ${onlineCount} Services Operational`;
-    subtitle.textContent = "Backend API gateway and all Vercel deployments responded cleanly.";
-  } else if (offlineCount === 0) {
+  if (activeBuilds.length > 0 || compilingCount > 0) {
     banner.classList.add("banner-warn");
-    title.textContent = `${compilingCount} Service(s) Cold-Starting or Compiling`;
-    subtitle.textContent = `${onlineCount} online, ${compilingCount} waking up. Retry in a few seconds.`;
-  } else {
+    const names = activeBuilds.map((b) => b.platform).join(", ");
+    title.textContent = "Builds or Services Are Currently Compiling / Waking Up";
+    subtitle.textContent = `${activeBuilds.length} active pipeline(s) (${names || "Render/Vercel"}) and ${compilingCount} endpoint(s) waking up. ${onlineCount} services running.`;
+  } else if (offlineCount > 0 || failedBuilds.length > 0) {
     banner.classList.add("banner-err");
-    title.textContent = `${offlineCount} Service(s) Unreachable`;
-    subtitle.textContent = `${onlineCount} online, ${compilingCount} compiling, ${offlineCount} offline.`;
+    title.textContent = `${offlineCount} Service(s) Offline / ${failedBuilds.length} Build Issue(s)`;
+    subtitle.textContent = `${onlineCount} running normally. Check the cards below for details.`;
+  } else {
+    banner.classList.add("banner-ok");
+    title.textContent = `Everything Is Live & Healthy (${onlineCount}/${results.length} Running)`;
+    subtitle.textContent = "No builds currently compiling. Render API Gateway and all Vercel sites are responding normally.";
   }
 
   document.getElementById("last-checked").textContent =
@@ -269,14 +405,16 @@ async function runFullCheck() {
   btn.textContent = "Checking...";
 
   await loadServerSnapshot();
-  const [results] = await Promise.all([
+  const [results, pipelineResults] = await Promise.all([
     Promise.all(ENDPOINTS.map(probeEndpoint)),
+    Promise.all(PIPELINE_REPOS.map(probePipeline)),
     probeBackendTelemetry(),
   ]);
-  renderResults(results);
+  renderPipelines(pipelineResults);
+  renderResults(results, pipelineResults);
 
   btn.disabled = false;
-  btn.textContent = "Run Full Check";
+  btn.textContent = "Refresh Now";
 }
 
 function setupControls() {
@@ -285,10 +423,7 @@ function setupControls() {
     const btn = document.getElementById("wake-backend-btn");
     btn.disabled = true;
     btn.textContent = "Waking...";
-    await Promise.all([
-      probeEndpoint(ENDPOINTS[0]),
-      probeBackendTelemetry(),
-    ]);
+    await Promise.all([probeEndpoint(ENDPOINTS[0]), probeBackendTelemetry()]);
     await runFullCheck();
     btn.disabled = false;
     btn.textContent = "Wake Up Backend";
@@ -297,7 +432,7 @@ function setupControls() {
   const autoBtn = document.getElementById("auto-refresh-toggle");
   autoBtn.addEventListener("click", () => {
     autoRefreshEnabled = !autoRefreshEnabled;
-    autoBtn.textContent = autoRefreshEnabled ? "Auto-Refresh: ON (30s)" : "Auto-Refresh: OFF";
+    autoBtn.textContent = autoRefreshEnabled ? "Live Polling: ON (10s)" : "Live Polling: OFF";
   });
 
   document.getElementById("custom-probe-form").addEventListener("submit", async (e) => {
@@ -319,11 +454,11 @@ function setupControls() {
     box.textContent = `${result.state} | ${result.detail} | Latency: ${result.latency} ms | URL: ${url}`;
   });
 
-  autoRefreshTimer = setInterval(() => {
+  setInterval(() => {
     if (autoRefreshEnabled && document.visibilityState === "visible") {
       runFullCheck();
     }
-  }, 30000);
+  }, 10000);
 }
 
 initTheme();

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sentinel Security — Unified Service & Deployment Checker</title>
+  <title>Sentinel Security — Live Deployment &amp; Pipeline Tracker</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -11,12 +11,12 @@
     <div class="container topbar-inner">
       <div>
         <span class="brand-badge">SENTINEL SECURITY</span>
-        <h1>Unified Deployment &amp; Health Checker</h1>
+        <h1>Live Deployment &amp; Pipeline Tracker</h1>
       </div>
       <div class="topbar-actions">
         <button id="theme-toggle" type="button" class="btn btn-secondary">Light Mode</button>
-        <button id="auto-refresh-toggle" type="button" class="btn btn-secondary">Auto-Refresh: ON (30s)</button>
-        <button id="run-check-btn" type="button" class="btn btn-primary">Run Full Check</button>
+        <button id="auto-refresh-toggle" type="button" class="btn btn-secondary">Live Polling: ON (10s)</button>
+        <button id="run-check-btn" type="button" class="btn btn-primary">Refresh Now</button>
       </div>
     </div>
   </header>
@@ -24,14 +24,24 @@
   <main class="container main-content">
     <section id="overall-banner" class="banner banner-checking">
       <div>
-        <span class="banner-label">OVERALL INFRASTRUCTURE STATUS</span>
-        <h2 id="overall-title">Probing Deployed Services...</h2>
-        <p id="overall-subtitle">Checking Render API Gateway, Supabase Telemetry, and Vercel Portals.</p>
+        <span class="banner-label">WHAT IS HAPPENING RIGHT NOW</span>
+        <h2 id="overall-title">Checking Live Pipelines &amp; Services...</h2>
+        <p id="overall-subtitle">Inspecting GitHub Actions, Render API Gateway, and Vercel deployments.</p>
       </div>
       <div class="banner-meta">
         <div id="last-checked">Last check: --</div>
         <div id="snapshot-age">Server snapshot: --</div>
       </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Live CI/CD &amp; Build Activity (GitHub Actions, Render, Vercel)</h3>
+          <p>Shows whether GitHub Actions, Render, or Vercel is currently compiling/building or idle and live.</p>
+        </div>
+      </div>
+      <div id="pipeline-grid" class="services-grid"></div>
     </section>
 
     <section class="panel">
@@ -65,8 +75,8 @@
     <section class="panel">
       <div class="panel-header">
         <div>
-          <h3>Monitored Endpoints (Render &amp; Vercel)</h3>
-          <p>Combines live browser reachability/latency with the latest GitHub Actions HTTP status snapshot.</p>
+          <h3>All Deployed Sites &amp; Links (Render &amp; Vercel)</h3>
+          <p>Plain-English health status, browser latency, and server-side HTTP status codes.</p>
         </div>
       </div>
       <div id="services-grid" class="services-grid"></div>
@@ -93,7 +103,7 @@
   </main>
 
   <footer class="footer container">
-    <span>Sentinel Security Infrastructure Monitor — Deployed via GitHub Pages</span>
+    <span>Sentinel Security Live Tracker — Deployed via GitHub Pages</span>
   </footer>
 
   <script src="./app.js"></script>
